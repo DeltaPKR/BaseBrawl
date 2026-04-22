@@ -1,0 +1,4 @@
+/home/deltapkr/source/BaseBrawl/CMakeFiles/server.dir
+/home/deltapkr/source/BaseBrawl/CMakeFiles/client.dir
+/home/deltapkr/source/BaseBrawl/CMakeFiles/edit_cache.dir
+/home/deltapkr/source/BaseBrawl/CMakeFiles/rebuild_cache.dir
