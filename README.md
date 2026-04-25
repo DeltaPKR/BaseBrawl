@@ -91,16 +91,10 @@ Client visuals include:
 ## Tech Stack
 
 - **Language:** C++17  
-- **Graphics:** :contentReference[oaicite:1]{index=1}  
+- **Graphics:** SFML
 - **Networking:** POSIX sockets + TCP  
 - **Server I/O:** Linux epoll event loop  
 - **Build System:** CMake
-
----
-
-### Build System
-
-- CMake
 
 ---
 
