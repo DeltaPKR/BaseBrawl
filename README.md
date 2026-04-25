@@ -5,7 +5,7 @@ BaseBrawl is a fast-paced **online 1v1 real-time strategy game** built in **C++1
 The project includes:
 
 - **Server** – handles matchmaking, authentication, networking, combat simulation, and game state updates  
-- **Client** – renders the game using :contentReference[oaicite:0]{index=0} and sends player actions to the server
+- **Client** – renders the game using SFML and sends player actions to the server
 
 ---
 
