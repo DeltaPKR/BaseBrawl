@@ -112,11 +112,11 @@ BaseBrawl/
 
 ## Dependencies
 
-## Required
-
 ### Linux / Ubuntu / Debian
 
 ---
+
+## Required
 
 ```bash
 sudo apt update
