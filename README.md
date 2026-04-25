@@ -106,11 +106,17 @@ BaseBrawl/
 ├── client.cpp        # SFML game client
 ├── CMakeLists.txt
 
+```
+
+---
+
 ## Dependencies
 
 ## Required
 
 ### Linux / Ubuntu / Debian
+
+---
 
 ```bash
 sudo apt update
