@@ -9,14 +9,16 @@
 #include <unordered_set>
 #include <string>
 #include <iostream>
+#include <fstream>
 #include <chrono>
 #include <algorithm>
 #include <sstream>
 #include <cmath>
 #include <cctype>
 
-#define PORT     55001
+#define PORT 55001
 #define MAX_EVTS 64
+#define DB_FILE "users.json"
 
 using Clock = std::chrono::steady_clock;
 
@@ -33,20 +35,86 @@ static const float MAIN_T_RANGE[3] = { 90.f,125.f,165.f };
 static const float MAIN_T_RATE[3] = { 0.8f, 1.3f, 1.9f };
 static const float UPGRADE_COST[3] = { 20.f, 35.f, 55.f };
 
-// Auth database
+// User database
 // name - password (plain text for a LAN game)
 static std::unordered_map<std::string, std::string> userDB;
 // names that currently have an active connection
 static std::unordered_set<std::string> activeNames;
 
-// Validate - 3-16 alphanumeric/underscore chars, no spaces
+// JSON persistence
+// File: users.json  (stored next to the server binary)
+// Format (one entry per line for easy diff/inspection):
+// Characters allowed by validName / validPass are all JSON-safe
+// (alphanumeric, underscore, no quotes, no backslashes, no control chars),
+// so we can serialize without any escaping logic.
+
+static void saveDB()
+{
+    std::ofstream f(DB_FILE, std::ios::trunc);
+    if (!f)
+    {
+        std::cerr << "[DB] Cannot write " << DB_FILE << "\n";
+        return;
+    }
+    f << "{\n";
+    bool first = true;
+    for (auto& [name, pass] : userDB)
+    {
+        if (!first) f << ",\n";
+        first = false;
+        f << "  \"" << name << "\": \"" << pass << '"';
+    }
+    f << "\n}\n";
+    std::cout << "[DB] Saved " << userDB.size() << " user(s) to " << DB_FILE << "\n";
+}
+
+static void loadDB()
+{
+    std::ifstream f(DB_FILE);
+    if (!f)
+    {
+        std::cout << "[DB] " << DB_FILE << " not found — starting with empty database.\n";
+        return;
+    }
+
+    // Minimal hand-rolled JSON parser sufficient for our flat string→string map.
+    // Handles the exact format produced by saveDB().
+    // Skips '{', '}', whitespace; reads "key": "value" pairs.
+    userDB.clear();
+    std::string line;
+    while (std::getline(f, line))
+    {
+        // Find first '"' — start of key
+        auto k0 = line.find('"');
+        if (k0 == std::string::npos) continue;
+        auto k1 = line.find('"', k0 + 1);
+        if (k1 == std::string::npos) continue;
+        std::string key = line.substr(k0 + 1, k1 - k0 - 1);
+        if (key.empty()) continue;
+
+        // Find ':' then the next pair of '"' — value
+        auto sep = line.find(':', k1 + 1);
+        if (sep == std::string::npos) continue;
+        auto v0 = line.find('"', sep + 1);
+        if (v0 == std::string::npos) continue;
+        auto v1 = line.find('"', v0 + 1);
+        if (v1 == std::string::npos) continue;
+        std::string val = line.substr(v0 + 1, v1 - v0 - 1);
+
+        userDB[key] = val;
+    }
+    std::cout << "[DB] Loaded " << userDB.size() << " user(s) from " << DB_FILE << "\n";
+}
+
+// Validation
+// 3-16 alphanumeric/underscore chars, no spaces
 static bool validName(const std::string& s)
 {
     if (s.size() < 3 || s.size() > 16) return false;
     for (char c : s) if (!isalnum((unsigned char)c) && c != '_') return false;
     return true;
 }
-// Validate - 4-32 chars with no spaces
+// 4-32 chars with no spaces
 static bool validPass(const std::string& s)
 {
     if (s.size() < 4 || s.size() > 32) return false;
@@ -84,7 +152,6 @@ struct Player
     float  spawnCD[5] = {};
     std::string recvBuf;
 
-    // Auth fields (new)
     std::string name;
     bool        authenticated = false;
 };
@@ -114,8 +181,6 @@ static void sendMsg(int fd, const std::string& s)
     send(fd, s.c_str(), s.size(), 0);
 }
 
-// Build a STATE line from one player's perspective.
-// myTurrIdx: index into match.mainTurret[] that belongs to `p`.
 static std::string buildState(Match& m, Player* p, Player* e,
     std::vector<Unit> mine[3], std::vector<Unit> enmy[3],
     int myTurrIdx)
@@ -164,7 +229,6 @@ static void updateMatch(Match& m, float dt)
 {
     if (!m.running) return;
 
-    // Coin income: base 2/s + 0.5/s per owned lane
     float inc1 = 2.f, inc2 = 2.f;
     for (int l = 0; l < 3; l++)
     {
@@ -174,20 +238,17 @@ static void updateMatch(Match& m, float dt)
     m.p1->coins = std::min(m.p1->coins + inc1 * dt, 99.f);
     m.p2->coins = std::min(m.p2->coins + inc2 * dt, 99.f);
 
-    // Tick spawn cooldowns
     for (int i = 0; i < 5; i++)
     {
         m.p1->spawnCD[i] = std::max(0.f, m.p1->spawnCD[i] - dt);
         m.p2->spawnCD[i] = std::max(0.f, m.p2->spawnCD[i] - dt);
     }
 
-    // Per-lane update
     for (int l = 0; l < 3; l++)
     {
         for (auto& u : m.u1[l]) u.x += u.speed * dt;
         for (auto& u : m.u2[l]) u.x -= u.speed * dt;
 
-        // Unit vs unit combat
         for (auto& a : m.u1[l])
             for (auto& b : m.u2[l])
                 if (std::abs(a.x - b.x) < 30.f)
@@ -196,7 +257,6 @@ static void updateMatch(Match& m, float dt)
                     b.hp -= a.dmg * dt * 5.f;
                 }
 
-        // Lane turret fires at nearest enemy unit in range
         Base& base = m.bases[l];
         if (base.owner != 0)
         {
@@ -216,7 +276,6 @@ static void updateMatch(Match& m, float dt)
             }
         }
 
-        // Remove dead units
         auto clean = [](std::vector<Unit>& v)
             {
                 v.erase(std::remove_if(v.begin(), v.end(),
@@ -225,7 +284,6 @@ static void updateMatch(Match& m, float dt)
         clean(m.u1[l]);
         clean(m.u2[l]);
 
-        // Base damage on arrival
         m.u1[l].erase(std::remove_if(m.u1[l].begin(), m.u1[l].end(), [&](Unit& u)
             {
                 if (u.x >= 760.f) { m.p2->baseHP -= u.siege ? u.dmg * 3 : u.dmg; return true; }
@@ -238,7 +296,6 @@ static void updateMatch(Match& m, float dt)
                 return false;
             }), m.u2[l].end());
 
-        // Lane capture
         int c1 = (int)m.u1[l].size(), c2 = (int)m.u2[l].size();
         base.capture += (c1 - c2) * dt * 15.f;
         base.capture = std::clamp(base.capture, -100.f, 100.f);
@@ -248,7 +305,6 @@ static void updateMatch(Match& m, float dt)
         if (base.owner != prevOwner) base.turretCD = 0.f;
     }
 
-    // Main base turrets
     auto fireMain = [&](int pi, std::vector<Unit> enemies[3])
         {
             MainTurret& mt = m.mainTurret[pi];
@@ -269,7 +325,6 @@ static void updateMatch(Match& m, float dt)
     fireMain(0, m.u2);
     fireMain(1, m.u1);
 
-    // Win / lose
     if (m.p1->baseHP <= 0)
     {
         sendMsg(m.p1->fd, "LOSE\n"); sendMsg(m.p2->fd, "WIN\n");
@@ -348,8 +403,6 @@ static void tryMatch()
         a->matchID = match.id; b->matchID = match.id;
         matches[match.id] = match;
 
-        // Send player names with START so clients can display them
-        // START <myPID> <myName> <opponentName>
         sendMsg(a->fd, "START 1 " + a->name + " " + b->name + "\n");
         sendMsg(b->fd, "START 2 " + b->name + " " + a->name + "\n");
 
@@ -367,7 +420,6 @@ static void removePlayer(int epfd, int fd)
     if (it == byFD.end()) return;
     Player* p = it->second;
 
-    // Release the name slot so the player can log back in
     if (p->authenticated)
         activeNames.erase(p->name);
 
@@ -389,11 +441,9 @@ static void removePlayer(int epfd, int fd)
     delete p;
 }
 
-// Handle REGISTER / LOGIN before other commands
 static void handleAuth(int fd, Player* p, const std::string& cmd,
     const std::string& name, const std::string& pass)
 {
-    // Validate format
     if (!validName(name))
     {
         sendMsg(fd, "AUTH_FAIL Username must be 3-16 alphanumeric/underscore chars\n");
@@ -413,6 +463,7 @@ static void handleAuth(int fd, Player* p, const std::string& cmd,
             return;
         }
         userDB[name] = pass;
+        saveDB();   // persist immediately after every new registration
         std::cout << "Registered new user: " << name << "\n";
     }
     else // LOGIN
@@ -430,14 +481,12 @@ static void handleAuth(int fd, Player* p, const std::string& cmd,
         }
     }
 
-    // Prevent duplicate simultaneous logins
     if (activeNames.count(name))
     {
         sendMsg(fd, "AUTH_FAIL That account is already logged in\n");
         return;
     }
 
-    // Success ─ authenticate and queue
     p->name = name;
     p->authenticated = true;
     activeNames.insert(name);
@@ -446,7 +495,7 @@ static void handleAuth(int fd, Player* p, const std::string& cmd,
     std::cout << name << " authenticated (fd=" << fd << ")\n";
 
     lobby.push_back(p);
-    tryMatch(); // may immediately send START if opponent is waiting
+    tryMatch();
 }
 
 static void processLine(int fd, const std::string& line)
@@ -459,7 +508,6 @@ static void processLine(int fd, const std::string& line)
     std::istringstream ss(line);
     std::string t; ss >> t;
 
-    // Auth gate
     if (!p->authenticated)
     {
         if (t == "REGISTER" || t == "LOGIN")
@@ -470,11 +518,9 @@ static void processLine(int fd, const std::string& line)
             else
                 sendMsg(fd, "AUTH_FAIL Missing username or password\n");
         }
-        // Ignore all other commands until authenticated
         return;
     }
 
-    // In-game commands
     if (t == "SPAWN")
     {
         int type, lane;
@@ -488,6 +534,8 @@ static void processLine(int fd, const std::string& line)
 
 int main()
 {
+    loadDB();   // restore registered users from disk before accepting connections
+
     int lfd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
     setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -529,8 +577,6 @@ int main()
                 p->fd = c;
                 byFD[c] = p;
 
-                // Do NOT queue until auth succeeds
-                // Client is expected to send LOGIN or REGISTER immediately.
                 std::cout << "Connection fd=" << c << " (awaiting auth)\n";
             }
             else

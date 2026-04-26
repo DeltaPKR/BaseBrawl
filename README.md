@@ -47,6 +47,23 @@ Destroy the enemy base before yours is destroyed.
 - Duplicate login prevention
 - Persistent in-memory user database
 
+### User Database
+ 
+Registered accounts are saved to **`users.json`** in the same directory as the server binary. The file is written every time a new account is created, and loaded automatically when the server starts — so accounts survive server restarts.
+ 
+The file uses a simple flat JSON format:
+ 
+```json
+{
+  "Name1": "password1",
+  "Name2": "password2"
+}
+```
+ 
+No external libraries are required. The parser is built into the server and handles the exact format it produces. To reset all accounts, simply delete `users.json`.
+ 
+> **Note:** Passwords are stored in plain text. This is intentional for a LAN game. Do not reuse real passwords.
+
 ### Unit Roster
 
 Five unique units with different costs, cooldowns, health, damage, and speed:
