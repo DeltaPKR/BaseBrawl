@@ -164,7 +164,7 @@ int main()
     const sf::Color EN_TEAM{ 215, 52,  52 };
 
     // Layout
-    const float HDR_H = 42.f;         // new header bar height
+    const float HDR_H = 42.f;
     const float LANE_Y[3] = { 128.f, 255.f, 382.f };
     const float PANEL_Y = 430.f;
     const float PANEL_H = 600.f - PANEL_Y;
@@ -206,7 +206,7 @@ int main()
             std::string cmd = std::string(authIsRegister ? "REGISTER " : "LOGIN ")
                 + authUsername + " " + authPassword + "\n";
             send(sock, cmd.c_str(), cmd.size(), 0);
-            screen = Screen::CONNECTING;   // waiting for AUTH_OK / AUTH_FAIL
+            screen = Screen::CONNECTING;
         };
 
     // State-machine message handler
@@ -216,17 +216,14 @@ int main()
             std::istringstream ss(line);
             std::string tok; ss >> tok;
 
-            // Auth responses
             if (tok == "AUTH_OK")
             {
-                // Server confirmed; will queue us automatically and may send START
                 std::string name; ss >> name;
                 myName = name;
                 screen = Screen::WAITING;
             }
             else if (tok == "AUTH_FAIL")
             {
-                // Read everything after "AUTH_FAIL " as the reason
                 std::string reason;
                 std::getline(ss, reason);
                 if (!reason.empty() && reason[0] == ' ') reason.erase(0, 1);
@@ -234,8 +231,6 @@ int main()
                 if (sock >= 0) { close(sock); sock = -1; }
                 screen = Screen::AUTH;
             }
-
-            // Lobby / match messages
             else if (tok == "WAITING")
             {
                 screen = Screen::WAITING;
@@ -247,7 +242,6 @@ int main()
                 myName = mname;
                 opponentName = oname;
                 g = GameData{}; g.myID = pid;
-                // Clear flash/snap state for fresh match
                 flashEvents.clear();
                 shakeTimer = 0.f;
                 for (int l = 0; l < 3; l++) { snapMy[l].clear(); snapEn[l].clear(); }
@@ -257,10 +251,8 @@ int main()
             else if (tok == "LOSE") { screen = Screen::LOSE; }
             else if (tok == "STATE")
             {
-                // Save HP before parse for shake detection
                 int oldMyBaseHP = g.myBaseHP;
 
-                // Snapshot current units before overwrite (for flash detection)
                 for (int l = 0; l < 3; l++)
                 {
                     snapMy[l].clear();
@@ -271,7 +263,6 @@ int main()
                         snapEn[l].push_back({ u.x, u.hp, u.type });
                 }
 
-                // Parse STATE payload
                 ss >> g.myCoins >> g.enemyCoins
                     >> g.myBaseHP >> g.enemyBaseHP
                     >> g.myTurretLvl >> g.enemyTurretLvl;
@@ -315,7 +306,6 @@ int main()
                 for (int l = 0; l < 3; l++)
                     if (g.baseOwner[l] == g.myID) g.basesOwned++;
 
-                // Flash detection: emit a flash wherever HP dropped
                 auto detectFlash = [&](const std::vector<Unit>& newUs,
                     const std::vector<UnitSnap>& snaps,
                     int lane)
@@ -340,7 +330,6 @@ int main()
                     detectFlash(g.enemyUnits[l], snapEn[l], l);
                 }
 
-                // Shake: scale intensity with damage received
                 if (g.myBaseHP < oldMyBaseHP)
                 {
                     float dmg = (float)(oldMyBaseHP - g.myBaseHP);
@@ -366,12 +355,11 @@ int main()
         {
             if (ev.type == sf::Event::Closed) window.close();
 
-            // Text input for AUTH screen
             if (ev.type == sf::Event::TextEntered && screen == Screen::AUTH)
             {
                 auto uc = ev.text.unicode;
                 std::string& field = (authActiveField == 0) ? authUsername : authPassword;
-                if (uc == 8 && !field.empty())      // backspace
+                if (uc == 8 && !field.empty())
                     field.pop_back();
                 else if (uc >= 32 && uc < 127 && uc != ' ')
                 {
@@ -382,11 +370,9 @@ int main()
 
             if (ev.type == sf::Event::KeyPressed)
             {
-                // MENU
                 if (screen == Screen::MENU && ev.key.code == sf::Keyboard::Return)
                     screen = Screen::AUTH;
 
-                // AUTH
                 if (screen == Screen::AUTH)
                 {
                     if (ev.key.code == sf::Keyboard::Tab)
@@ -403,7 +389,6 @@ int main()
                     }
                 }
 
-                // WIN / LOSE – press R to reconnect with same credentials
                 if ((screen == Screen::WIN || screen == Screen::LOSE)
                     && ev.key.code == sf::Keyboard::R)
                 {
@@ -413,7 +398,7 @@ int main()
                     for (int l = 0; l < 3; l++) { snapMy[l].clear(); snapEn[l].clear(); }
 
                     if (!authUsername.empty() && !authPassword.empty())
-                        submitAuth();   // auto-reconnect with stored creds
+                        submitAuth();
                     else
                     {
                         authError.clear();
@@ -586,22 +571,18 @@ int main()
         // AUTH screen
         else if (screen == Screen::AUTH)
         {
-            // Dim background
             sf::RectangleShape bg({ 800.f, 600.f });
             bg.setFillColor(sf::Color(9, 10, 20)); window.draw(bg);
 
-            // Title
             auto title = mkText("BaseBrawl", 52, sf::Color(255, 210, 50));
             centerText(title, 400.f, 80.f); window.draw(title);
 
-            // Mode toggle  [F1 Login]  [F2 Register]
             {
                 sf::Color loginC = !authIsRegister
                     ? sf::Color(65, 185, 255) : sf::Color(50, 55, 80);
                 sf::Color regC = authIsRegister
                     ? sf::Color(75, 225, 120) : sf::Color(50, 55, 80);
 
-                // Login pill
                 sf::RectangleShape lpill({ 150.f, 32.f });
                 lpill.setPosition(220.f, 148.f);
                 lpill.setFillColor(!authIsRegister ? sf::Color(18, 36, 65) : sf::Color(14, 14, 22));
@@ -610,7 +591,6 @@ int main()
                 auto lt = mkText("[F1]  Login", 14, loginC);
                 centerText(lt, 295.f, 164.f); window.draw(lt);
 
-                // Register pill
                 sf::RectangleShape rpill({ 150.f, 32.f });
                 rpill.setPosition(430.f, 148.f);
                 rpill.setFillColor(authIsRegister ? sf::Color(14, 38, 22) : sf::Color(14, 14, 22));
@@ -620,7 +600,6 @@ int main()
                 centerText(rt, 505.f, 164.f); window.draw(rt);
             }
 
-            // Input field helper
             auto drawField = [&](float cy, const std::string& label,
                 const std::string& value, bool isPass, bool active)
                 {
@@ -648,7 +627,6 @@ int main()
             drawField(235.f, "Username", authUsername, false, authActiveField == 0);
             drawField(315.f, "Password", authPassword, true, authActiveField == 1);
 
-            // Hints
             auto tabHint = mkText("Tab = switch field    Esc = back to menu", 11,
                 sf::Color(65, 70, 100));
             centerText(tabHint, 400.f, 380.f); window.draw(tabHint);
@@ -658,7 +636,6 @@ int main()
                 17, canSubmit ? sf::Color(80, 200, 100) : sf::Color(55, 60, 80));
             centerText(sub, 400.f, 418.f); window.draw(sub);
 
-            // Error message
             if (!authError.empty())
             {
                 sf::RectangleShape errBox({ 700.f, 32.f });
@@ -684,12 +661,10 @@ int main()
             centerText(t2, 400, 330); window.draw(t2);
         }
 
-        // PLAYING / WIN / LOSE 
+        // PLAYING / WIN / LOSE
         else
         {
             // Compute shake offset
-            // Uses shakeTimer as a natural decaying oscillator input.
-            // No frame counter needed — shakeTimer changes ~dt per frame.
             sf::Vector2f shakeOff(0.f, 0.f);
             if (shakeTimer > 0.f)
             {
@@ -698,7 +673,6 @@ int main()
                 shakeOff.y = std::cos(shakeTimer * 67.f) * mag;
             }
 
-            // Apply shake view for all game-world geometry
             sf::View shakeView = window.getDefaultView();
             shakeView.move(shakeOff);
             window.setView(shakeView);
@@ -718,18 +692,25 @@ int main()
             }
 
             // Side base panels
+            // Left panel belongs to P1, right panel to P2.
+            // Color them from each player's perspective: own = blue, enemy = red.
             sf::Color myPanelCol(12, 28, 65), enPanelCol(60, 12, 12);
+            sf::Color leftPanelCol = iAmP1 ? myPanelCol : enPanelCol;
+            sf::Color rightPanelCol = iAmP1 ? enPanelCol : myPanelCol;
+
             sf::RectangleShape p1Panel({ BASE_W, PANEL_Y - HDR_H });
             p1Panel.setPosition(0, HDR_H);
-            p1Panel.setFillColor(iAmP1 ? myPanelCol : enPanelCol); window.draw(p1Panel);
+            p1Panel.setFillColor(leftPanelCol); window.draw(p1Panel);
+
             sf::RectangleShape p2Panel({ BASE_W, PANEL_Y - HDR_H });
             p2Panel.setPosition(800.f - BASE_W, HDR_H);
-            p2Panel.setFillColor(iAmP1 ? enPanelCol : myPanelCol); window.draw(p2Panel);
+            p2Panel.setFillColor(rightPanelCol); window.draw(p2Panel);
 
             // Vertical HP bars on inner edge of panels
             {
                 float barH = PANEL_Y - HDR_H - 42.f;
                 float barTop = HDR_H + 20.f;
+                // Left bar always shows P1's HP; right bar always shows P2's HP
                 float p1HpFrac = iAmP1 ? g.myBaseHP / 100.f : g.enemyBaseHP / 100.f;
                 float p2HpFrac = iAmP1 ? g.enemyBaseHP / 100.f : g.myBaseHP / 100.f;
                 sf::Color leftBarCol = iAmP1 ? sf::Color(50, 135, 255) : sf::Color(205, 48, 48);
@@ -771,10 +752,8 @@ int main()
             float midPanelY = (PANEL_Y - HDR_H) * 0.5f + HDR_H;
             int p1TurrLvl = iAmP1 ? g.myTurretLvl : g.enemyTurretLvl;
             int p2TurrLvl = iAmP1 ? g.enemyTurretLvl : g.myTurretLvl;
-            sf::Color leftTurrCol = (p1TurrLvl > 0)
-                ? (iAmP1 ? MY_TEAM : EN_TEAM) : sf::Color(58, 63, 90);
-            sf::Color rightTurrCol = (p2TurrLvl > 0)
-                ? (iAmP1 ? EN_TEAM : MY_TEAM) : sf::Color(58, 63, 90);
+            sf::Color leftTurrCol = (p1TurrLvl > 0) ? (iAmP1 ? MY_TEAM : EN_TEAM) : sf::Color(58, 63, 90);
+            sf::Color rightTurrCol = (p2TurrLvl > 0) ? (iAmP1 ? EN_TEAM : MY_TEAM) : sf::Color(58, 63, 90);
             drawTurretIcon(BASE_W * 0.5f, midPanelY, p1TurrLvl, leftTurrCol, true);
             drawTurretIcon(800.f - BASE_W * 0.5f, midPanelY, p2TurrLvl, rightTurrCol, false);
 
@@ -800,8 +779,7 @@ int main()
                     sf::Color(35, 20, 20), barFillCol);
 
                 bool p1Owns = (g.baseOwner[l] == 1);
-                if (!iOwn && !theyOwn) {}
-                else
+                if (iOwn || theyOwn)
                 {
                     sf::RectangleShape tbody({ 12.f,12.f });
                     tbody.setOrigin(6.f, 6.f); tbody.setRotation(45.f);
@@ -858,12 +836,11 @@ int main()
                 for (auto& u : g.enemyUnits[l]) drawUnit(u, false);
             }
 
-            // Hit-flash events (drawn on top of units)
-            // Each flash is a warm glowing ring that quickly expands and fades.
+            // Hit-flash events
             for (auto& fe : flashEvents)
             {
-                float frac = fe.timer / FlashEvent::MAX;           // 1-0
-                float radius = 10.f + (1.f - frac) * 10.f;          // 10-20 px
+                float frac = fe.timer / FlashEvent::MAX;
+                float radius = 10.f + (1.f - frac) * 10.f;
                 sf::Uint8 alpha = (sf::Uint8)(frac * 210.f);
 
                 sf::CircleShape ring(radius);
@@ -874,7 +851,6 @@ int main()
                 ring.setOutlineThickness(3.f);
                 window.draw(ring);
 
-                // Inner bright core pulse
                 float coreR = 6.f * frac;
                 sf::CircleShape core(coreR);
                 core.setOrigin(coreR, coreR);
@@ -886,7 +862,10 @@ int main()
             // Switch to fixed (non-shaken) view for overlays
             window.setView(window.getDefaultView());
 
-            // Header bar: player names, VS, coin display
+            // ── Header bar ────────────────────────────────────────────────────
+            // Rule: the name on the LEFT always belongs to the base on the LEFT
+            // (P1), and the name on the RIGHT always belongs to the base on the
+            // RIGHT (P2). So for P2, own name goes right, opponent goes left.
             {
                 sf::RectangleShape hdr({ 800.f, HDR_H });
                 hdr.setFillColor(sf::Color(8, 9, 18)); window.draw(hdr);
@@ -894,28 +873,33 @@ int main()
                 hdrLine.setPosition(0.f, HDR_H - 1.f);
                 hdrLine.setFillColor(sf::Color(28, 36, 75)); window.draw(hdrLine);
 
-                // My name (left, blue)
-                auto myNT = mkText(myName, 16, MY_TEAM);
-                myNT.setPosition(8.f, 5.f); window.draw(myNT);
-                // My coins below name
-                auto myCT = mkText("$" + std::to_string(g.myCoins), 11,
-                    sf::Color(200, 175, 55));
-                myCT.setPosition(8.f, 24.f); window.draw(myCT);
+                // Determine which name/coins to put on each side
+                const std::string& leftName = iAmP1 ? myName : opponentName;
+                const std::string& rightName = iAmP1 ? opponentName : myName;
+                int leftCoins = iAmP1 ? g.myCoins : g.enemyCoins;
+                int rightCoins = iAmP1 ? g.enemyCoins : g.myCoins;
+                sf::Color leftCol = iAmP1 ? MY_TEAM : EN_TEAM;
+                sf::Color rightCol = iAmP1 ? EN_TEAM : MY_TEAM;
+
+                // Left name + coins
+                auto leftNT = mkText(leftName, 16, leftCol);
+                leftNT.setPosition(8.f, 5.f); window.draw(leftNT);
+                auto leftCT = mkText("$" + std::to_string(leftCoins), 11, sf::Color(200, 175, 55));
+                leftCT.setPosition(8.f, 24.f); window.draw(leftCT);
 
                 // VS centre
                 auto vsT = mkText("VS", 14, sf::Color(55, 60, 95));
                 centerText(vsT, 400.f, HDR_H * 0.5f); window.draw(vsT);
 
-                // Opponent name (right, red) — right-aligned
-                auto enNT = mkText(opponentName, 16, EN_TEAM);
-                auto enNB = enNT.getLocalBounds();
-                enNT.setPosition(800.f - enNB.width - enNB.left - 8.f, 5.f);
-                window.draw(enNT);
-                auto enCT = mkText("$" + std::to_string(g.enemyCoins), 11,
-                    sf::Color(200, 175, 55));
-                auto enCB = enCT.getLocalBounds();
-                enCT.setPosition(800.f - enCB.width - enCB.left - 8.f, 24.f);
-                window.draw(enCT);
+                // Right name + coins (right-aligned)
+                auto rightNT = mkText(rightName, 16, rightCol);
+                auto rightNB = rightNT.getLocalBounds();
+                rightNT.setPosition(800.f - rightNB.width - rightNB.left - 8.f, 5.f);
+                window.draw(rightNT);
+                auto rightCT = mkText("$" + std::to_string(rightCoins), 11, sf::Color(200, 175, 55));
+                auto rightCB = rightCT.getLocalBounds();
+                rightCT.setPosition(800.f - rightCB.width - rightCB.left - 8.f, 24.f);
+                window.draw(rightCT);
             }
 
             // Bottom UI Panel
@@ -944,7 +928,7 @@ int main()
 
                 sf::Color basCol = (g.basesOwned > 0) ? sf::Color(70, 200, 70)
                     : sf::Color(160, 70, 70);
-                auto basT = mkText("Bases:" + std::to_string(g.basesOwned), 14, basCol);
+                auto basT = mkText("Bases: " + std::to_string(g.basesOwned), 14, basCol);
                 basT.setPosition(130.f, PANEL_Y + 26.f); window.draw(basT);
 
                 if (g.myTurretLvl < 3)
@@ -1055,7 +1039,6 @@ int main()
                 centerText(big, 400, 210); window.draw(big);
                 auto sub2 = mkText("Press R to play again", 22, sf::Color(168, 172, 215));
                 centerText(sub2, 400, 320); window.draw(sub2);
-                // Show match result with names
                 std::string resultLine = won
                     ? (myName + " defeated " + opponentName + "!")
                     : (opponentName + " defeated " + myName + "!");
